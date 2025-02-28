@@ -140,12 +140,25 @@ export default function ComparisonForm() {
     setResult(null);
 
     try {
+      console.log('正在比较站点地图:', selectedSitemaps);
       const response = await axios.post('/api/compare-sitemaps', {
         files: selectedSitemaps
       });
-      setResult(response.data);
+      console.log('比较结果:', response.data);
+      
+      if (response.data && response.data.success) {
+        setResult(response.data);
+      } else {
+        setError('比较站点地图失败: 服务器返回了无效的响应');
+        console.error('无效的响应:', response.data);
+      }
     } catch (error) {
-      setError(error.response?.data?.error || '比较站点地图失败');
+      console.error('比较站点地图失败:', error);
+      setError(
+        error.response?.data?.error || 
+        error.response?.data?.details || 
+        '比较站点地图失败，请检查控制台获取更多信息'
+      );
     } finally {
       setLoading(false);
     }
@@ -277,6 +290,11 @@ export default function ComparisonForm() {
               >
                 {loading ? '比较中...' : '比较选中的站点地图'}
               </button>
+              {selectedSitemaps.length === 2 && (
+                <p style={{fontSize: '12px', color: '#6b7280', marginTop: '8px', textAlign: 'center'}}>
+                  将比较: {selectedSitemaps[0]} 和 {selectedSitemaps[1]}
+                </p>
+              )}
             </div>
           )}
         </div>

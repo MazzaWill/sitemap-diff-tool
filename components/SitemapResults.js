@@ -47,39 +47,55 @@ const urlLinkStyle = {
 
 export default function SitemapResults({ result }) {
   // 如果没有结果，不显示任何内容
-  if (!result || !result.output) {
+  if (!result) {
     return null;
   }
 
   // 解析输出
   const parseOutput = () => {
-    const output = result.output;
-    const urls = [];
-    let message = '';
-    
-    // 尝试提取URLs
-    const urlMatches = output.match(/https?:\/\/[^\s]+/g) || [];
-    urls.push(...urlMatches);
-    
-    // 提取消息
-    const lines = output.split('\n');
-    for (const line of lines) {
-      if (line.includes('从Sitemap中提取到') || 
-          line.includes('发现') || 
-          line.includes('已保存') ||
-          line.includes('比较')) {
-        message += line + '\n';
+    // 如果是比较结果
+    if (result.output) {
+      const output = result.output;
+      const urls = [];
+      
+      // 处理比较结果 - 每行一个URL
+      const lines = output.trim().split('\n');
+      for (const line of lines) {
+        const trimmedLine = line.trim();
+        if (trimmedLine.startsWith('http')) {
+          urls.push(trimmedLine);
+        }
       }
+      
+      let message = '';
+      if (urls.length > 0) {
+        message = `比较结果: 发现 ${urls.length} 个不同的URL`;
+      } else {
+        message = '比较结果: 未发现不同的URL';
+      }
+      
+      return { urls, message, isComparison: true };
+    } 
+    // 如果是获取站点地图结果
+    else if (result.domain && result.urls) {
+      const message = `从 ${result.domain} 的站点地图中提取到 ${result.urls.length} 个URL，已保存到 ${result.filename}`;
+      return { 
+        urls: result.urls || [], 
+        message, 
+        isComparison: false 
+      };
     }
     
-    return { urls, message };
+    return { urls: [], message: '', isComparison: false };
   };
   
-  const { urls, message } = parseOutput();
+  const { urls, message, isComparison } = parseOutput();
   
   return (
     <div style={resultContainerStyle}>
-      <div style={resultHeaderStyle}>处理结果</div>
+      <div style={resultHeaderStyle}>
+        {isComparison ? '比较结果' : '站点地图处理结果'}
+      </div>
       
       {message && (
         <div style={summaryContainerStyle}>
@@ -97,7 +113,7 @@ export default function SitemapResults({ result }) {
       {urls.length > 0 && (
         <div style={urlListContainerStyle}>
           <h4 style={{fontSize: '16px', fontWeight: '500', marginBottom: '12px'}}>
-            URL 列表 ({urls.length})
+            {isComparison ? '不同的 URL' : 'URL 列表'} ({urls.length})
           </h4>
           
           <div style={urlListStyle}>

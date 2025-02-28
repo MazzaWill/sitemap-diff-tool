@@ -29,7 +29,10 @@ def download_sitemap(url):
             f"{base_url}/sitemap.xml",
             f"{base_url}/sitemap_index.xml",
             f"{base_url}/sitemap/sitemap.xml",
-            f"{base_url}/sitemaps/sitemap.xml"
+            f"{base_url}/sitemaps/sitemap.xml",
+            f"{base_url}/wp-sitemap.xml",  # WordPress
+            f"{base_url}/sitemap.php",     # 一些CMS使用PHP生成
+            f"{base_url}/sitemap.html",    # HTML格式的站点地图
         ]
         
         # 如果用户提供的URL已经包含sitemap路径，优先使用它
@@ -38,27 +41,43 @@ def download_sitemap(url):
         
         # 尝试访问网站首页，获取重定向后的域名
         try:
-            response = requests.get(base_url, timeout=10, allow_redirects=True)
+            print(f"尝试访问网站首页: {base_url}")
+            response = requests.get(base_url, timeout=10, allow_redirects=True, 
+                                   headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'})
+            print(f"首页响应状态码: {response.status_code}")
+            
             if response.url != base_url:
                 redirected_url = response.url
+                print(f"检测到重定向: {base_url} -> {redirected_url}")
                 parsed_redirected = urlparse(redirected_url)
                 redirected_base = f"{parsed_redirected.scheme}://{parsed_redirected.netloc}"
                 
                 # 添加重定向后的域名的sitemap URL
                 sitemap_urls.extend([
                     f"{redirected_base}/sitemap.xml",
-                    f"{redirected_base}/sitemap_index.xml"
+                    f"{redirected_base}/sitemap_index.xml",
+                    f"{redirected_base}/wp-sitemap.xml"
                 ])
-        except:
-            pass  # 忽略获取重定向的错误
+        except Exception as e:
+            print(f"访问首页时出错: {e}")
         
         # 尝试所有可能的sitemap URL
         errors = []
         for sitemap_url in sitemap_urls:
             try:
                 print(f"尝试下载 Sitemap: {sitemap_url}")
-                response = requests.get(sitemap_url, timeout=30)
+                response = requests.get(sitemap_url, timeout=30, 
+                                       headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'})
+                print(f"响应状态码: {response.status_code}")
+                
                 if response.status_code == 200:
+                    content_type = response.headers.get('Content-Type', '')
+                    print(f"内容类型: {content_type}")
+                    
+                    # 检查是否是HTML内容
+                    if 'html' in content_type.lower():
+                        print("检测到HTML格式的站点地图，将尝试提取链接")
+                    
                     return response.text
             except requests.exceptions.RequestException as e:
                 errors.append(f"{sitemap_url}: {str(e)}")
@@ -72,25 +91,78 @@ def download_sitemap(url):
         try:
             robots_url = f"{base_url}/robots.txt"
             print(f"尝试从robots.txt查找Sitemap: {robots_url}")
-            response = requests.get(robots_url, timeout=10)
+            response = requests.get(robots_url, timeout=10, 
+                                   headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'})
             if response.status_code == 200:
                 robots_content = response.text
+                print("robots.txt内容:")
+                print(robots_content)
+                
                 # 查找Sitemap行
                 sitemap_lines = [line for line in robots_content.splitlines() 
                                 if line.lower().startswith('sitemap:')]
                 
                 if sitemap_lines:
+                    print(f"在robots.txt中找到 {len(sitemap_lines)} 个Sitemap条目")
                     for line in sitemap_lines:
                         sitemap_url = line.split(':', 1)[1].strip()
                         try:
                             print(f"从robots.txt中尝试: {sitemap_url}")
-                            response = requests.get(sitemap_url, timeout=30)
+                            response = requests.get(sitemap_url, timeout=30, 
+                                                  headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'})
                             if response.status_code == 200:
                                 return response.text
-                        except:
-                            pass
-        except:
-            pass
+                        except Exception as e:
+                            print(f"访问robots.txt中的Sitemap失败: {e}")
+        except Exception as e:
+            print(f"获取robots.txt失败: {e}")
+            
+        # 尝试直接爬取网站首页，提取所有链接
+        try:
+            print(f"尝试从网站首页提取链接: {base_url}")
+            response = requests.get(base_url, timeout=30, 
+                                   headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'})
+            if response.status_code == 200:
+                # 创建一个伪站点地图
+                print("创建从首页提取的链接的伪站点地图")
+                from bs4 import BeautifulSoup
+                soup = BeautifulSoup(response.text, 'html.parser')
+                links = soup.find_all('a', href=True)
+                
+                # 构建一个简单的XML站点地图
+                sitemap_content = '<?xml version="1.0" encoding="UTF-8"?>\n'
+                sitemap_content += '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
+                
+                added_urls = set()
+                for link in links:
+                    href = link['href']
+                    # 处理相对URL
+                    if href.startswith('/'):
+                        full_url = base_url + href
+                    elif href.startswith('http'):
+                        # 只包含同一域名的URL
+                        if parsed_url.netloc in href:
+                            full_url = href
+                        else:
+                            continue
+                    else:
+                        # 跳过锚点链接和JavaScript
+                        if href.startswith('#') or href.startswith('javascript:'):
+                            continue
+                        full_url = base_url + '/' + href
+                    
+                    # 去重
+                    if full_url not in added_urls:
+                        added_urls.add(full_url)
+                        sitemap_content += f'  <url>\n    <loc>{full_url}</loc>\n  </url>\n'
+                
+                sitemap_content += '</urlset>'
+                
+                if added_urls:
+                    print(f"从首页提取了 {len(added_urls)} 个链接")
+                    return sitemap_content
+        except Exception as e:
+            print(f"从首页提取链接失败: {e}")
             
         return None
     except Exception as e:
@@ -111,48 +183,74 @@ def parse_sitemap(sitemap_content):
             'ns': 'http://www.sitemaps.org/schemas/sitemap/0.9'
         }
         
-        root = ET.fromstring(sitemap_content)
-        urls = []
-        
-        # 检查是否是sitemap索引文件
-        is_sitemap_index = root.tag.endswith('sitemapindex')
-        
-        if is_sitemap_index:
-            print("检测到Sitemap索引文件，正在处理...")
-            # 处理sitemap索引文件
-            for sitemap_element in root.findall('.//ns:sitemap', namespaces):
-                loc_element = sitemap_element.find('ns:loc', namespaces)
-                if loc_element is not None and loc_element.text:
-                    sitemap_url = loc_element.text
-                    print(f"从索引中获取Sitemap: {sitemap_url}")
-                    try:
-                        response = requests.get(sitemap_url, timeout=30)
-                        if response.status_code == 200:
-                            # 递归解析子sitemap
-                            sub_urls = parse_sitemap(response.text)
-                            urls.extend(sub_urls)
-                    except Exception as e:
-                        print(f"获取子Sitemap失败: {sitemap_url} - {e}")
-        else:
-            # 处理标准sitemap文件
-            for url_element in root.findall('.//ns:url', namespaces):
-                loc_element = url_element.find('ns:loc', namespaces)
-                if loc_element is not None and loc_element.text:
-                    urls.append(loc_element.text)
-        
-        return urls
-    except ET.ParseError as e:
-        print(f"解析 Sitemap 失败: {e}")
-        # 尝试处理非标准XML或HTML格式的sitemap
+        # 尝试解析XML
         try:
-            # 使用正则表达式提取URL
-            import re
-            urls = re.findall(r'<loc>(.*?)</loc>', sitemap_content)
+            root = ET.fromstring(sitemap_content)
+            urls = []
+            
+            # 检查是否是sitemap索引文件
+            is_sitemap_index = root.tag.endswith('sitemapindex')
+            
+            if is_sitemap_index:
+                print("检测到Sitemap索引文件，正在处理...")
+                # 处理sitemap索引文件
+                for sitemap_element in root.findall('.//ns:sitemap', namespaces):
+                    loc_element = sitemap_element.find('ns:loc', namespaces)
+                    if loc_element is not None and loc_element.text:
+                        sitemap_url = loc_element.text
+                        print(f"从索引中获取Sitemap: {sitemap_url}")
+                        try:
+                            response = requests.get(sitemap_url, timeout=30, 
+                                                  headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'})
+                            if response.status_code == 200:
+                                # 递归解析子sitemap
+                                sub_urls = parse_sitemap(response.text)
+                                urls.extend(sub_urls)
+                        except Exception as e:
+                            print(f"获取子Sitemap失败: {sitemap_url} - {e}")
+            else:
+                # 处理标准sitemap文件
+                for url_element in root.findall('.//ns:url', namespaces):
+                    loc_element = url_element.find('ns:loc', namespaces)
+                    if loc_element is not None and loc_element.text:
+                        urls.append(loc_element.text)
+            
             if urls:
-                print(f"使用正则表达式提取到 {len(urls)} 个URL")
                 return urls
-        except Exception:
-            pass
+        except ET.ParseError as e:
+            print(f"XML解析失败，尝试使用正则表达式: {e}")
+        
+        # 如果XML解析失败，尝试使用正则表达式
+        import re
+        urls = re.findall(r'<loc>(.*?)</loc>', sitemap_content)
+        if urls:
+            print(f"使用正则表达式提取到 {len(urls)} 个URL")
+            return urls
+        
+        # 如果仍然没有找到URL，尝试解析为HTML
+        try:
+            from bs4 import BeautifulSoup
+            soup = BeautifulSoup(sitemap_content, 'html.parser')
+            
+            # 尝试查找所有链接
+            links = soup.find_all('a', href=True)
+            urls = [link['href'] for link in links if link['href'].startswith('http')]
+            
+            if urls:
+                print(f"从HTML中提取到 {len(urls)} 个链接")
+                return urls
+        except Exception as e:
+            print(f"HTML解析失败: {e}")
+        
+        # 最后尝试直接匹配所有URL
+        all_urls = re.findall(r'https?://[^\s<>"\']+', sitemap_content)
+        if all_urls:
+            print(f"通过通用URL模式提取到 {len(all_urls)} 个URL")
+            return all_urls
+            
+        return []
+    except Exception as e:
+        print(f"解析Sitemap时发生错误: {e}")
         return []
 
 def save_sitemap_data(domain, urls, output_dir=None):
