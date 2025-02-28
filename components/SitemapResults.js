@@ -54,24 +54,38 @@ export default function SitemapResults({ result }) {
   // 解析输出
   const parseOutput = () => {
     // 如果是比较结果
-    if (result.output) {
-      const output = result.output;
-      const urls = [];
-      
-      // 处理比较结果 - 每行一个URL
-      const lines = output.trim().split('\n');
-      for (const line of lines) {
-        const trimmedLine = line.trim();
-        if (trimmedLine.startsWith('http')) {
-          urls.push(trimmedLine);
-        }
-      }
-      
+    if (result.newUrls || result.output) {
+      const urls = result.newUrls || [];
       let message = '';
-      if (urls.length > 0) {
-        message = `比较结果: 发现 ${urls.length} 个不同的URL`;
-      } else {
-        message = '比较结果: 未发现不同的URL';
+      
+      // 如果有 newUrls 数组，使用它
+      if (result.newUrls) {
+        if (urls.length > 0) {
+          message = `比较结果: 发现 ${urls.length} 个新增URL (从 ${result.oldTotal || 0} 个URL 到 ${result.newTotal || 0} 个URL)`;
+        } else {
+          message = '比较结果: 未发现新增URL';
+        }
+      } 
+      // 兼容旧格式 - 从输出文本中解析
+      else if (result.output) {
+        const output = result.output;
+        const parsedUrls = [];
+        
+        // 处理比较结果 - 每行一个URL
+        const lines = output.trim().split('\n');
+        for (const line of lines) {
+          const trimmedLine = line.trim();
+          if (trimmedLine.startsWith('http')) {
+            parsedUrls.push(trimmedLine);
+          }
+        }
+        
+        if (parsedUrls.length > 0) {
+          message = `比较结果: 发现 ${parsedUrls.length} 个新增URL`;
+          return { urls: parsedUrls, message, isComparison: true };
+        } else {
+          message = '比较结果: 未发现新增URL';
+        }
       }
       
       return { urls, message, isComparison: true };

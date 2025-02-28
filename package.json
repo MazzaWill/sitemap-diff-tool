@@ -10,10 +10,13 @@
   },
   "dependencies": {
     "axios": "^0.27.2",
+    "file-saver": "^2.0.5",
+    "jsdom": "^20.0.0",
     "next": "^12.2.0",
     "react": "18.2.0",
     "react-dom": "18.2.0",
-    "xml2js": "^0.4.23"
+    "xml2js": "^0.4.23",
+    "yargs": "^17.5.1"
   },
   "devDependencies": {
     "autoprefixer": "^10.4.7",

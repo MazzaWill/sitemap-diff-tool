@@ -3,6 +3,5 @@
   "/_error": "pages/_error.js",
   "/_document": "pages/_document.js",
   "/": "pages/index.js",
-  "/api/compare-sitemaps": "pages/api/compare-sitemaps.js",
-  "/api/list-sitemaps": "pages/api/list-sitemaps.js"
+  "/api/compare-sitemaps": "pages/api/compare-sitemaps.js"
 }

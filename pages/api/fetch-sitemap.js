@@ -1,6 +1,7 @@
 import { exec } from 'child_process';
-import { promisify } from 'util';
 import path from 'path';
+import fs from 'fs';
+import { promisify } from 'util';
 
 const execPromise = promisify(exec);
 
@@ -10,58 +11,55 @@ export default async function handler(req, res) {
       const { url } = req.body;
       
       if (!url) {
-        return res.status(400).json({ error: '请提供URL' });
+        return res.status(400).json({ error: '请提供域名或URL' });
       }
       
-      // 获取脚本的绝对路径
-      const scriptPath = path.join(process.cwd(), 'sitemap_diff.py');
+      console.log(`开始获取站点地图: ${url}`);
       
-      console.log(`执行命令: python "${scriptPath}" fetch ${url}`);
+      // 执行Python脚本获取站点地图
+      const scriptPath = path.resolve(process.cwd(), 'sitemap_diff.py');
+      const command = `python "${scriptPath}" fetch ${url}`;
       
-      // 执行命令，指定工作目录
-      const { stdout, stderr } = await execPromise(`python "${scriptPath}" fetch ${url}`, {
-        cwd: process.cwd(),
-        // 增加超时时间
-        timeout: 60000 // 60秒
-      });
+      console.log(`执行命令: ${command}`);
+      const { stdout, stderr } = await execPromise(command);
       
-      console.log("脚本输出:", stdout);
       if (stderr) {
-        console.error("脚本错误:", stderr);
+        console.error(`Python脚本错误: ${stderr}`);
       }
       
-      // 检查是否找到URL
-      if (stdout.includes('未找到任何URL')) {
-        return res.status(404).json({ 
-          success: false, 
-          error: '未找到任何URL，请检查网站是否有站点地图',
-          output: stdout 
-        });
+      console.log(`脚本输出: ${stdout}`);
+      
+      // 查找最新的站点地图文件
+      const dataDir = path.resolve(process.cwd(), 'data');
+      const files = fs.readdirSync(dataDir);
+      const sitemapFiles = files
+        .filter(file => file.startsWith(`${url}_`) && file.endsWith('.json'))
+        .sort()
+        .reverse();
+      
+      if (sitemapFiles.length === 0) {
+        return res.status(500).json({ error: '获取站点地图失败，未找到保存的文件' });
       }
       
-      // 检查是否成功保存了文件
-      if (stdout.includes('已保存') && stdout.includes('个URL到文件')) {
-        return res.status(200).json({ success: true, output: stdout });
-      }
+      const latestFile = sitemapFiles[0];
+      const filePath = path.join(dataDir, latestFile);
       
-      // 如果没有明确的成功或失败标志，但有输出
-      if (stdout.trim()) {
-        return res.status(200).json({ success: true, output: stdout });
-      }
+      // 读取站点地图文件内容
+      const fileContent = fs.readFileSync(filePath, 'utf8');
+      const sitemapData = JSON.parse(fileContent);
       
-      // 默认情况，可能是未知错误
-      return res.status(500).json({ 
-        success: false, 
-        error: '处理站点地图时出现未知错误',
-        output: stdout 
+      return res.status(200).json({
+        success: true,
+        domain: url,
+        urls: sitemapData,
+        filename: latestFile,
+        timestamp: new Date().toISOString()
       });
     } catch (error) {
-      console.error('Exception:', error);
+      console.error('获取站点地图时出错:', error);
       return res.status(500).json({ 
-        error: '执行脚本时出错', 
-        details: error.message,
-        stdout: error.stdout,
-        stderr: error.stderr
+        error: '获取站点地图时出错', 
+        details: error.message
       });
     }
   } else {

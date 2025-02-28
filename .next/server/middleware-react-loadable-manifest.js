@@ -1,1 +1,1 @@
-self.__REACT_LOADABLE_MANIFEST={}
+self.__REACT_LOADABLE_MANIFEST={"../components/ComparisonForm.js -> file-saver":{"id":"../components/ComparisonForm.js -> file-saver","files":["static/chunks/node_modules_file-saver_dist_FileSaver_min_js.js"]}}
