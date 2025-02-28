@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 
 const resultContainerStyle = {
   marginTop: '24px',
@@ -45,7 +45,42 @@ const urlLinkStyle = {
   textDecoration: 'none'
 };
 
+const paginationStyle = {
+  display: 'flex',
+  justifyContent: 'space-between',
+  alignItems: 'center',
+  marginTop: '12px',
+  padding: '8px 0'
+};
+
+const pageButtonStyle = {
+  padding: '6px 12px',
+  backgroundColor: '#3b82f6',
+  color: 'white',
+  border: 'none',
+  borderRadius: '4px',
+  cursor: 'pointer',
+  fontSize: '14px',
+  margin: '0 4px'
+};
+
+const disabledButtonStyle = {
+  ...pageButtonStyle,
+  backgroundColor: '#9ca3af',
+  cursor: 'not-allowed'
+};
+
+const pageInfoStyle = {
+  fontSize: '14px',
+  color: '#4b5563'
+};
+
 export default function SitemapResults({ result }) {
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(100);
+  const [displayedUrls, setDisplayedUrls] = useState([]);
+  const [totalPages, setTotalPages] = useState(1);
+  
   // 如果没有结果，不显示任何内容
   if (!result) {
     return null;
@@ -61,7 +96,10 @@ export default function SitemapResults({ result }) {
       // 如果有 newUrls 数组，使用它
       if (result.newUrls) {
         if (urls.length > 0) {
-          message = `比较结果: 发现 ${urls.length} 个新增URL (从 ${result.oldTotal || 0} 个URL 到 ${result.newTotal || 0} 个URL)`;
+          message = `比较结果: 发现 ${result.totalNew || urls.length} 个新增URL`;
+          if (result.domain1 && result.domain2) {
+            message += ` (从 ${result.domain1} 到 ${result.domain2})`;
+          }
         } else {
           message = '比较结果: 未发现新增URL';
         }
@@ -105,6 +143,29 @@ export default function SitemapResults({ result }) {
   
   const { urls, message, isComparison } = parseOutput();
   
+  // 计算总页数
+  useEffect(() => {
+    if (urls.length > 0) {
+      setTotalPages(Math.ceil(urls.length / itemsPerPage));
+      updateDisplayedUrls(1);
+    }
+  }, [urls, itemsPerPage]);
+  
+  // 更新当前显示的URL
+  const updateDisplayedUrls = (page) => {
+    const startIndex = (page - 1) * itemsPerPage;
+    const endIndex = startIndex + itemsPerPage;
+    setDisplayedUrls(urls.slice(startIndex, endIndex));
+    setCurrentPage(page);
+  };
+  
+  // 页面导航
+  const goToPage = (page) => {
+    if (page >= 1 && page <= totalPages) {
+      updateDisplayedUrls(page);
+    }
+  };
+  
   return (
     <div style={resultContainerStyle}>
       <div style={resultHeaderStyle}>
@@ -127,14 +188,15 @@ export default function SitemapResults({ result }) {
       {urls.length > 0 && (
         <div style={urlListContainerStyle}>
           <h4 style={{fontSize: '16px', fontWeight: '500', marginBottom: '12px'}}>
-            {isComparison ? '不同的 URL' : 'URL 列表'} ({urls.length})
+            {isComparison ? '新增 URL' : 'URL 列表'} ({urls.length})
+            {urls.length > itemsPerPage && ` - 分页显示，每页 ${itemsPerPage} 个`}
           </h4>
           
           <div style={urlListStyle}>
-            {urls.map((url, index) => (
+            {displayedUrls.map((url, index) => (
               <div key={index} style={{
                 ...urlItemStyle,
-                borderBottom: index < urls.length - 1 ? '1px solid #e5e7eb' : 'none'
+                borderBottom: index < displayedUrls.length - 1 ? '1px solid #e5e7eb' : 'none'
               }}>
                 <a 
                   href={url} 
@@ -147,6 +209,49 @@ export default function SitemapResults({ result }) {
               </div>
             ))}
           </div>
+          
+          {urls.length > itemsPerPage && (
+            <div style={paginationStyle}>
+              <div>
+                <button 
+                  style={currentPage === 1 ? disabledButtonStyle : pageButtonStyle}
+                  onClick={() => goToPage(1)}
+                  disabled={currentPage === 1}
+                >
+                  首页
+                </button>
+                <button 
+                  style={currentPage === 1 ? disabledButtonStyle : pageButtonStyle}
+                  onClick={() => goToPage(currentPage - 1)}
+                  disabled={currentPage === 1}
+                >
+                  上一页
+                </button>
+              </div>
+              
+              <div style={pageInfoStyle}>
+                第 {currentPage} 页，共 {totalPages} 页
+                （显示 {(currentPage - 1) * itemsPerPage + 1} - {Math.min(currentPage * itemsPerPage, urls.length)} 项，共 {urls.length} 项）
+              </div>
+              
+              <div>
+                <button 
+                  style={currentPage === totalPages ? disabledButtonStyle : pageButtonStyle}
+                  onClick={() => goToPage(currentPage + 1)}
+                  disabled={currentPage === totalPages}
+                >
+                  下一页
+                </button>
+                <button 
+                  style={currentPage === totalPages ? disabledButtonStyle : pageButtonStyle}
+                  onClick={() => goToPage(totalPages)}
+                  disabled={currentPage === totalPages}
+                >
+                  末页
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>

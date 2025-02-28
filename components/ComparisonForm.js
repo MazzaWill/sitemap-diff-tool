@@ -131,6 +131,16 @@ const styles = {
     cursor: 'pointer',
     fontSize: '12px',
     marginLeft: '8px'
+  },
+  actionButton: {
+    padding: '4px 8px',
+    backgroundColor: '#3b82f6',
+    color: 'white',
+    border: 'none',
+    borderRadius: '4px',
+    cursor: 'pointer',
+    fontSize: '12px',
+    marginLeft: '8px'
   }
 };
 
@@ -138,12 +148,12 @@ export default function ComparisonForm() {
   const [url, setUrl] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [message, setMessage] = useState(null);
   const [result, setResult] = useState(null);
   const [sitemaps, setSitemaps] = useState([]);
   const [selectedSitemaps, setSelectedSitemaps] = useState([]);
   const [activeTab, setActiveTab] = useState('fetch'); // 'fetch' or 'compare'
   const [localSitemaps, setLocalSitemaps] = useState([]);
-  const [message, setMessage] = useState('');
   const [saveAsFunction, setSaveAsFunction] = useState(null);
 
   useEffect(() => {
@@ -160,6 +170,8 @@ export default function ComparisonForm() {
       if (storedSitemaps) {
         try {
           const parsedSitemaps = JSON.parse(storedSitemaps);
+          
+          // 确保站点地图名称唯一
           const uniqueSitemaps = [];
           const sitemapNames = new Set();
           
@@ -167,9 +179,12 @@ export default function ComparisonForm() {
             if (!sitemapNames.has(sitemap.name)) {
               sitemapNames.add(sitemap.name);
               uniqueSitemaps.push(sitemap);
+            } else {
+              console.log(`跳过重复的站点地图: ${sitemap.name}`);
             }
           });
           
+          console.log(`加载了 ${uniqueSitemaps.length} 个唯一站点地图`);
           setLocalSitemaps(uniqueSitemaps);
           setSitemaps(uniqueSitemaps);
         } catch (e) {
@@ -280,37 +295,50 @@ export default function ComparisonForm() {
     
     setLoading(true);
     setError('');
+    setMessage('');
     setResult('');
     
     try {
       console.log('开始比较选中的站点地图...');
       console.log('选中的文件:', selectedFiles);
       
-      // 不再从IndexedDB获取完整数据，只使用文件名
-      const sitemapData1 = {
-        filename: selectedFiles[0].name,
-        domain: selectedFiles[0].domain || extractDomainFromFilename(selectedFiles[0].name)
-      };
+      // 准备请求数据
+      const requestData = {};
       
-      const sitemapData2 = {
-        filename: selectedFiles[1].name,
-        domain: selectedFiles[1].domain || extractDomainFromFilename(selectedFiles[1].name)
-      };
+      // 检查是否有downloadUrl（上传的文件）
+      if (selectedFiles[0].downloadUrl && selectedFiles[1].downloadUrl) {
+        // 从downloadUrl获取文件内容
+        const content1 = await fetchFileContent(selectedFiles[0].downloadUrl);
+        const content2 = await fetchFileContent(selectedFiles[1].downloadUrl);
+        
+        if (!content1 || !content2) {
+          throw new Error('无法获取站点地图文件内容');
+        }
+        
+        requestData.sitemapContent1 = content1;
+        requestData.sitemapContent2 = content2;
+      } else {
+        // 使用文件名 - 确保使用完整的文件名，不要修改格式
+        requestData.sitemapData1 = {
+          filename: selectedFiles[0].name,
+          domain: selectedFiles[0].domain || extractDomainFromFilename(selectedFiles[0].name)
+        };
+        
+        requestData.sitemapData2 = {
+          filename: selectedFiles[1].name,
+          domain: selectedFiles[1].domain || extractDomainFromFilename(selectedFiles[1].name)
+        };
+      }
       
       console.log('准备发送数据到API进行比较...');
-      console.log('发送的数据:', { 
-        sitemapData1: sitemapData1, 
-        sitemapData2: sitemapData2
-      });
+      // 详细记录发送的数据，便于调试
+      console.log('发送的数据:', JSON.stringify(requestData, null, 2));
       
       try {
         const response = await fetch('/api/compare-sitemaps', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ 
-            sitemapData1: sitemapData1, 
-            sitemapData2: sitemapData2 
-          })
+          body: JSON.stringify(requestData)
         });
         
         console.log('API响应状态:', response.status);
@@ -318,7 +346,10 @@ export default function ComparisonForm() {
         if (!response.ok) {
           const errorText = await response.text();
           console.error('API响应错误:', errorText);
-          throw new Error(`API响应失败: ${response.status} ${errorText}`);
+          
+          // 使用错误处理函数
+          handleApiError(new Error(errorText));
+          return;
         }
         
         const data = await response.json();
@@ -326,18 +357,40 @@ export default function ComparisonForm() {
         
         if (data.success) {
           setResult(data);
+          setMessage(`比较完成，找到 ${data.totalNew} 个新增URL。`);
+          
+          // 如果URL数量很多，添加额外提示
+          if (data.totalNew > 1000) {
+            setMessage(`比较完成，找到 ${data.totalNew} 个新增URL。由于数据量较大，可能需要一些时间来显示所有结果。`);
+          }
         } else {
           setError(data.error || '比较站点地图失败');
         }
       } catch (fetchError) {
         console.error('API请求失败:', fetchError);
-        throw new Error(`API请求失败: ${fetchError.message}`);
+        
+        // 使用错误处理函数
+        handleApiError(fetchError);
       }
     } catch (error) {
       console.error('比较站点地图时出错:', error);
-      setError('比较站点地图时出错: ' + error.message);
+      setError(error.message);
     } finally {
       setLoading(false);
+    }
+  };
+
+  // 从URL获取文件内容的辅助函数
+  const fetchFileContent = async (url) => {
+    try {
+      const response = await fetch(url);
+      if (!response.ok) {
+        throw new Error(`获取文件内容失败: ${response.status}`);
+      }
+      return await response.text();
+    } catch (error) {
+      console.error('获取文件内容失败:', error);
+      return null;
     }
   };
 
@@ -402,57 +455,85 @@ export default function ComparisonForm() {
 
   const saveSitemapLocally = async (data, filename) => {
     try {
-      if (typeof window === 'undefined') {
-        throw new Error('浏览器环境不可用');
-      }
-
-      const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
+      // 检查是否已存在同名站点地图
+      const existingIndex = sitemaps.findIndex(sitemap => sitemap.name === filename);
       
-      await saveBlobToIndexedDB(filename, blob);
-      
-      const existingSitemapIndex = localSitemaps.findIndex(sitemap => sitemap.name === filename);
-      let updatedSitemaps = [...localSitemaps];
-      
-      if (existingSitemapIndex >= 0) {
-        updatedSitemaps[existingSitemapIndex] = {
+      // 如果已存在，更新它而不是添加新的
+      if (existingIndex !== -1) {
+        console.log(`更新已存在的站点地图: ${filename}`);
+        const updatedSitemaps = [...sitemaps];
+        updatedSitemaps[existingIndex] = {
           name: filename,
           domain: data.domain,
-          timestamp: new Date().toISOString(),
-          urlCount: data.urls.length
+          urls: data.urls,
+          timestamp: new Date().toISOString()
         };
-      } else {
-        updatedSitemaps.push({
-          name: filename,
-          domain: data.domain,
-          timestamp: new Date().toISOString(),
-          urlCount: data.urls.length
-        });
+        setSitemaps(updatedSitemaps);
+        localStorage.setItem('sitemaps', JSON.stringify(updatedSitemaps));
+        return;
       }
       
-      setLocalSitemaps(updatedSitemaps);
+      // 否则添加新的站点地图
+      const newSitemap = {
+        name: filename,
+        domain: data.domain,
+        urls: data.urls,
+        timestamp: new Date().toISOString()
+      };
+      
+      const updatedSitemaps = [...sitemaps, newSitemap];
       setSitemaps(updatedSitemaps);
+      
+      // 保存到localStorage
       localStorage.setItem('sitemaps', JSON.stringify(updatedSitemaps));
       
+      // 保存到IndexedDB
+      await saveBlobToIndexedDB(filename, new Blob([JSON.stringify(data)], { type: 'application/json' }));
+      
+      console.log(`站点地图已保存: ${filename}`);
       return true;
-    } catch (e) {
-      console.error('保存站点地图到本地失败:', e);
+    } catch (error) {
+      console.error('保存站点地图失败:', error);
       return false;
     }
   };
 
   const handleFetchResponse = async (data) => {
     if (data.success) {
-      const saved = await saveSitemapLocally({
+      // 创建下载链接
+      const blob = new Blob([JSON.stringify(data.data || {
         domain: data.domain,
         urls: data.urls,
         timestamp: new Date().toISOString()
-      }, data.filename);
+      })], { type: 'application/json' });
       
-      if (saved) {
-        setResult(data);
-      } else {
-        setError('保存站点地图到本地失败');
-      }
+      // 创建下载URL
+      const downloadUrl = URL.createObjectURL(blob);
+      
+      // 设置结果，包含下载URL
+      setResult({
+        ...data,
+        downloadUrl: downloadUrl
+      });
+      
+      // 显示成功消息，提示用户可以下载
+      setMessage(`站点地图已成功获取，包含 ${data.urls.length} 个URL。您可以点击下载按钮保存文件。`);
+      
+      // 添加到本地站点地图列表
+      const newSitemap = {
+        name: data.filename,
+        domain: data.domain,
+        timestamp: new Date().toISOString(),
+        urlCount: data.urls.length,
+        downloadUrl: downloadUrl
+      };
+      
+      setLocalSitemaps(prev => [...prev, newSitemap]);
+      setSitemaps(prev => [...prev, newSitemap]);
+      
+      // 更新本地存储
+      const updatedSitemaps = [...localSitemaps, newSitemap];
+      localStorage.setItem('sitemaps', JSON.stringify(updatedSitemaps));
     } else {
       setError(data.error || '获取站点地图失败');
     }
@@ -549,22 +630,120 @@ export default function ComparisonForm() {
     input.click();
   };
 
+  // 添加上传站点地图文件的函数
+  const uploadSitemap = (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
+    
+    setLoading(true);
+    setError(null);
+    setMessage(null);
+    
+    const reader = new FileReader();
+    
+    reader.onload = (e) => {
+      try {
+        const content = e.target.result;
+        const data = JSON.parse(content);
+        
+        if (!data.domain || !data.urls) {
+          setError('无效的站点地图文件格式');
+          setLoading(false);
+          return;
+        }
+        
+        // 创建文件名
+        const timestamp = new Date().toISOString()
+          .replace(/:/g, '')
+          .replace(/\./g, '')
+          .replace(/[-T]/g, '')
+          .substring(0, 14);
+        const filename = `${data.domain}_${timestamp}.json`;
+        
+        // 创建下载URL
+        const blob = new Blob([content], { type: 'application/json' });
+        const downloadUrl = URL.createObjectURL(blob);
+        
+        // 添加到本地状态
+        const newSitemap = {
+          name: filename,
+          domain: data.domain,
+          timestamp: data.timestamp || new Date().toISOString(),
+          urlCount: data.urls.length,
+          downloadUrl: downloadUrl
+        };
+        
+        setLocalSitemaps(prev => [...prev, newSitemap]);
+        setSitemaps(prev => [...prev, newSitemap]);
+        
+        setMessage(`站点地图文件 "${file.name}" 已成功上传，包含 ${data.urls.length} 个URL。`);
+      } catch (error) {
+        console.error('解析站点地图文件失败:', error);
+        setError('解析站点地图文件失败: ' + error.message);
+      } finally {
+        setLoading(false);
+      }
+    };
+    
+    reader.onerror = () => {
+      setError('读取文件失败');
+      setLoading(false);
+    };
+    
+    reader.readAsText(file);
+  };
+
+  // 处理API错误的函数
+  const handleApiError = (error) => {
+    console.error('API错误:', error);
+    
+    // 检查是否是响应大小超出限制的错误
+    if (error.message && (
+        error.message.includes('exceeded 1mb limit') || 
+        error.message.includes('Body exceeded') ||
+        error.message.includes('body size limit')
+      )) {
+      setError('响应数据过大，超出了服务器限制。已修复此问题，请刷新页面后重试。');
+    } else {
+      setError(error.message || '请求失败，请重试');
+    }
+  };
+
   return (
     <div style={formContainerStyle}>
       <div style={tabContainerStyle}>
-        <div 
-          style={activeTab === 'fetch' ? activeTabStyle : inactiveTabStyle}
+        <button 
+          style={{...tabStyle, ...(activeTab === 'fetch' ? activeTabStyle : {})}} 
           onClick={() => setActiveTab('fetch')}
         >
           获取站点地图
-        </div>
-        <div 
-          style={activeTab === 'compare' ? activeTabStyle : inactiveTabStyle}
+        </button>
+        <button 
+          style={{...tabStyle, ...(activeTab === 'compare' ? activeTabStyle : {})}} 
           onClick={() => setActiveTab('compare')}
         >
           比较站点地图
-        </div>
+        </button>
       </div>
+
+      {error && (
+        <div style={errorContainerStyle}>
+          <p>{error}</p>
+        </div>
+      )}
+
+      {message && (
+        <div style={{
+          padding: '12px',
+          backgroundColor: '#d1fae5',
+          borderRadius: '6px',
+          marginBottom: '16px',
+          color: '#15803d',
+          border: '1px solid #a7f3d0'
+        }}>
+          <p>{message}</p>
+        </div>
+      )}
 
       {activeTab === 'fetch' ? (
         <div>
@@ -575,26 +754,63 @@ export default function ComparisonForm() {
                 网站 URL
               </label>
               <input
-                type="text"
                 id="url"
-                style={inputStyle}
-                placeholder="例如: example.com"
+                type="text"
                 value={url}
                 onChange={(e) => setUrl(e.target.value)}
-                required
+                placeholder="输入域名或URL，例如: example.com"
+                style={inputStyle}
+                disabled={loading}
               />
-              <p style={{fontSize: '12px', color: '#6b7280', marginTop: '4px'}}>
-                输入网站域名或直接输入站点地图URL
-              </p>
             </div>
             <button
               type="submit"
               style={loading ? disabledButtonStyle : buttonStyle}
               disabled={loading}
             >
-              {loading ? '处理中...' : '获取站点地图'}
+              {loading ? '获取中...' : '获取站点地图'}
             </button>
           </form>
+          
+          {/* 添加上传站点地图文件的选项 */}
+          <div style={{marginTop: '20px'}}>
+            <h3 style={{fontSize: '18px', fontWeight: '500', marginBottom: '16px'}}>上传站点地图文件</h3>
+            <input
+              type="file"
+              accept=".json"
+              onChange={uploadSitemap}
+              style={{marginBottom: '16px'}}
+            />
+          </div>
+          
+          {result && (
+            <div style={{marginTop: '20px'}}>
+              <h3 style={{fontSize: '18px', fontWeight: '500', marginBottom: '16px'}}>获取结果</h3>
+              <SitemapResults data={result} />
+              
+              {result.downloadUrl && (
+                <div style={{marginTop: '16px'}}>
+                  <a 
+                    href={result.downloadUrl} 
+                    download={result.filename}
+                    style={{
+                      display: 'inline-block',
+                      padding: '10px 16px',
+                      backgroundColor: '#2563eb',
+                      color: 'white',
+                      textDecoration: 'none',
+                      borderRadius: '6px',
+                      fontSize: '16px',
+                      fontWeight: '500',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    下载站点地图文件
+                  </a>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       ) : (
         <div>
@@ -636,7 +852,10 @@ export default function ComparisonForm() {
                 overflowY: 'auto',
                 marginBottom: '16px'
               }}>
-                {sitemaps.map((sitemap, index) => (
+                {/* 确保显示唯一的站点地图列表 */}
+                {sitemaps.filter((sitemap, index, self) => 
+                  index === self.findIndex(s => s.name === sitemap.name)
+                ).map((sitemap, index) => (
                   <div key={index} style={{
                     padding: '10px 12px',
                     borderBottom: index < sitemaps.length - 1 ? '1px solid #e5e7eb' : 'none',
@@ -693,72 +912,79 @@ export default function ComparisonForm() {
         </div>
       )}
 
-      {error && (
-        <div style={errorContainerStyle}>
-          <p>{error}</p>
-        </div>
-      )}
-
       {result && <SitemapResults result={result} />}
 
       {activeTab === 'compare' && (
-        <div>
-          <h3 style={{fontSize: '18px', fontWeight: '500', marginBottom: '16px', marginTop: '24px'}}>管理站点地图</h3>
-          <div style={styles.buttonGroup}>
-            <button 
-              onClick={importSitemap}
-              style={styles.button}
-            >
-              导入站点地图
-            </button>
+        <div style={compareContainerStyle}>
+          <div style={uploadContainerStyle}>
+            <h3>上传站点地图文件</h3>
+            <input
+              type="file"
+              accept=".json"
+              onChange={uploadSitemap}
+              style={{ display: 'none' }}
+              id="sitemap-upload"
+            />
+            <label htmlFor="sitemap-upload" style={uploadButtonStyle}>
+              选择文件
+            </label>
+            <p style={{ marginTop: '8px', fontSize: '14px', color: '#666' }}>
+              支持JSON格式的站点地图文件
+            </p>
           </div>
+          
+          <div style={sitemapListStyle}>
+            <h3>可用的站点地图</h3>
+            <div style={styles.buttonGroup}>
+              <button 
+                onClick={importSitemap}
+                style={styles.button}
+              >
+                导入站点地图
+              </button>
+            </div>
 
-          <div style={styles.sitemapList}>
-            {sitemaps.map((sitemap, index) => (
-              <div key={sitemap.name} style={{
-                ...styles.sitemapItem,
-                borderBottom: index < sitemaps.length - 1 ? '1px solid #e5e7eb' : 'none'
-              }}>
-                <input
-                  type="checkbox"
-                  checked={selectedSitemaps.includes(sitemap.name)}
-                  onChange={() => toggleSitemapSelection(sitemap.name)}
-                  disabled={!selectedSitemaps.includes(sitemap.name) && selectedSitemaps.length >= 2}
-                  style={{marginRight: '8px'}}
-                />
-                <span style={{flex: 1}}>{sitemap.name}</span>
-                <div>
-                  <button 
-                    onClick={() => exportSitemap(sitemap.name)}
-                    style={styles.smallButton}
-                    title="导出此站点地图"
-                  >
-                    导出
-                  </button>
-                  <button 
-                    onClick={() => deleteSitemap(sitemap.name)}
-                    style={styles.deleteButton}
-                    title="删除此站点地图"
-                  >
-                    删除
-                  </button>
+            <div style={styles.sitemapList}>
+              {/* 确保显示唯一的站点地图列表 */}
+              {sitemaps.filter((sitemap, index, self) => 
+                index === self.findIndex(s => s.name === sitemap.name)
+              ).map((sitemap, index) => (
+                <div key={sitemap.name} style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  padding: '8px 12px',
+                  borderBottom: '1px solid #eee',
+                  backgroundColor: selectedSitemaps.includes(sitemap.name) ? '#f0f9ff' : 'white'
+                }}>
+                  <label style={{display: 'flex', alignItems: 'center', cursor: 'pointer', flex: 1}}>
+                    <input
+                      type="checkbox"
+                      checked={selectedSitemaps.includes(sitemap.name)}
+                      onChange={() => toggleSitemapSelection(sitemap.name)}
+                      disabled={!selectedSitemaps.includes(sitemap.name) && selectedSitemaps.length >= 2}
+                      style={{marginRight: '8px'}}
+                    />
+                    <span>{sitemap.name}</span>
+                  </label>
+                  <div>
+                    <button
+                      onClick={() => exportSitemap(sitemap.name)}
+                      style={styles.actionButton}
+                    >
+                      导出
+                    </button>
+                    <button
+                      onClick={() => deleteSitemap(sitemap.name)}
+                      style={{...styles.actionButton, backgroundColor: '#ef4444'}}
+                    >
+                      删除
+                    </button>
+                  </div>
                 </div>
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
-        </div>
-      )}
-
-      {message && (
-        <div style={{
-          padding: '12px',
-          backgroundColor: '#d1fae5',
-          borderRadius: '6px',
-          marginBottom: '16px',
-          color: '#15803d',
-          border: '1px solid #a7f3d0'
-        }}>
-          <p>{message}</p>
         </div>
       )}
     </div>
@@ -806,4 +1032,35 @@ const saveBlobToIndexedDB = (filename, blob) => {
       reject(error);
     }
   });
+};
+
+// 添加样式
+const compareContainerStyle = {
+  marginBottom: '20px',
+  padding: '16px',
+  border: '1px dashed #d9d9d9',
+  borderRadius: '6px',
+  textAlign: 'center'
+};
+
+const uploadContainerStyle = {
+  marginBottom: '20px',
+  padding: '16px',
+  border: '1px dashed #d9d9d9',
+  borderRadius: '6px',
+  textAlign: 'center'
+};
+
+const uploadButtonStyle = {
+  display: 'inline-block',
+  padding: '8px 16px',
+  backgroundColor: '#1890ff',
+  color: 'white',
+  borderRadius: '4px',
+  cursor: 'pointer',
+  transition: 'background-color 0.3s'
+};
+
+const sitemapListStyle = {
+  marginBottom: '16px'
 }; 

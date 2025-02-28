@@ -400,76 +400,68 @@ def compare_two_files(file1, file2):
     return new_urls
 
 def main():
-    parser = argparse.ArgumentParser(description='Sitemap工具 - 下载、保存和比较网站Sitemap')
-    subparsers = parser.add_subparsers(dest='command', help='子命令')
+    parser = argparse.ArgumentParser(description='站点地图工具')
+    subparsers = parser.add_subparsers(dest='command', help='命令')
     
-    # 获取sitemap子命令
-    fetch_parser = subparsers.add_parser('fetch', help='获取网站的Sitemap')
-    fetch_parser.add_argument('url', help='网站URL或域名')
-    fetch_parser.add_argument('--no-save', action='store_true', help='不保存获取的Sitemap')
-    fetch_parser.add_argument('--output-dir', '-o', help='指定输出目录')
+    # fetch命令
+    fetch_parser = subparsers.add_parser('fetch', help='获取站点地图')
+    fetch_parser.add_argument('domain', help='域名或URL')
+    fetch_parser.add_argument('--output', '-o', help='输出文件路径')
+    fetch_parser.add_argument('--no-save', action='store_true', help='不保存到文件，直接输出URL列表')
     
-    # 比较子命令
-    compare_parser = subparsers.add_parser('compare', help='比较Sitemap')
-    compare_group = compare_parser.add_mutually_exclusive_group(required=True)
-    compare_group.add_argument('--url', help='下载网站Sitemap并与之前保存的进行比较')
-    compare_group.add_argument('--files', nargs=2, metavar=('FILE1', 'FILE2'), help='比较两个保存的Sitemap文件')
-    compare_parser.add_argument('--data-dir', '-d', help='指定数据目录')
-    
-    # 列出保存的sitemap文件
-    list_parser = subparsers.add_parser('list', help='列出保存的Sitemap文件')
-    list_parser.add_argument('--domain', help='指定域名筛选')
-    list_parser.add_argument('--data-dir', '-d', help='指定数据目录')
+    # compare命令
+    compare_parser = subparsers.add_parser('compare', help='比较两个站点地图')
+    compare_parser.add_argument('--files', nargs=2, help='要比较的两个站点地图文件路径')
     
     args = parser.parse_args()
     
-    # 如果没有指定子命令，显示帮助
-    if not args.command:
-        parser.print_help()
-        return
-    
-    # 处理获取sitemap命令
     if args.command == 'fetch':
-        result = fetch_sitemap(args.url, not args.no_save, args.output_dir)
-        if not result:
+        sitemap_content = download_sitemap(args.domain)
+        if not sitemap_content:
+            print("未找到任何站点地图")
             sys.exit(1)
-    
-    # 处理比较命令
-    elif args.command == 'compare':
-        if args.url:
-            # 下载并与之前的比较
-            result = fetch_sitemap(args.url, True, args.data_dir)
-            if not result:
-                sys.exit(1)
             
-            compare_with_previous(result['domain'], result['urls'], args.data_dir)
+        urls = parse_sitemap(sitemap_content)
+        if not urls:
+            print("未找到任何URL")
+            sys.exit(1)
+            
+        print(f"从Sitemap中提取到 {len(urls)} 个URL")
         
-        elif args.files:
-            # 比较两个文件
-            compare_two_files(args.files[0], args.files[1])
-    
-    # 处理列出文件命令
-    elif args.command == 'list':
-        data_dir = args.data_dir or os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data')
-        if not os.path.exists(data_dir):
-            print(f"数据目录不存在: {data_dir}")
-            return
+        # 提取域名
+        parsed_url = urlparse(args.domain)
+        domain = parsed_url.netloc
+        if not domain:
+            domain = args.domain.split('/')[0]
         
-        files = os.listdir(data_dir)
-        if args.domain:
-            files = [f for f in files if f.startswith(args.domain) and f.endswith('.json')]
+        # 如果指定了--no-save选项，则不保存到文件
+        if args.no_save:
+            # 直接输出所有URL
+            for url in urls:
+                print(url)
         else:
-            files = [f for f in files if f.endswith('.json')]
+            # 保存到文件
+            save_sitemap_data(domain, urls)
+    
+    elif args.command == 'compare':
+        if not args.files or len(args.files) != 2:
+            print("请提供两个站点地图文件路径")
+            sys.exit(1)
+            
+        file1, file2 = args.files
         
-        if not files:
-            print("没有找到保存的Sitemap文件")
-            return
-        
-        print(f"找到 {len(files)} 个Sitemap文件:")
-        for f in sorted(files):
-            file_path = os.path.join(data_dir, f)
-            file_size = os.path.getsize(file_path) / 1024  # KB
-            print(f"{f} ({file_size:.2f} KB)")
+        if not os.path.exists(file1):
+            print(f"文件不存在: {file1}")
+            sys.exit(1)
+            
+        if not os.path.exists(file2):
+            print(f"文件不存在: {file2}")
+            sys.exit(1)
+            
+        compare_two_files(file1, file2)
+    
+    else:
+        parser.print_help()
 
 if __name__ == "__main__":
     main() 
