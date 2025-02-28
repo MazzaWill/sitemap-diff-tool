@@ -5,10 +5,11 @@ class MyDocument extends Document {
     return (
       <Html>
         <Head>
-          <link
+          {/* 删除这个CDN链接 */}
+          {/* <link
             href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css"
             rel="stylesheet"
-          />
+          /> */}
         </Head>
         <body>
           <Main />
